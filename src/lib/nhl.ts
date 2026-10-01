@@ -323,7 +323,16 @@ function markdownSection(markdown: string, title: string, nextTitles: string[]):
 }
 
 function parseMarkdownLineup(markdown: string): TeamLineupData {
-  const sectionTitles = ["Forwards", "Defensive Pairings", "1st Powerplay Unit", "2nd Powerplay Unit", "Goalies", "Injuries"];
+  const sectionTitles = [
+    "Forwards",
+    "Defensive Pairings",
+    "1st Powerplay Unit",
+    "2nd Powerplay Unit",
+    "1st Penalty Kill Unit",
+    "2nd Penalty Kill Unit",
+    "Goalies",
+    "Injuries",
+  ];
   const section = (title: string) => markdownSection(markdown, title, sectionTitles.filter((nextTitle) => nextTitle !== title));
   const chunkGroups = (players: LineupPlayerData[], size: number, label: string): LineupGroupData[] => {
     const groups: LineupGroupData[] = [];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { DayGame, StartingGoaliesData, TeamLineupData, TeamWeekRow, WeeklyScheduleData } from "@/lib/nhl";
 import { NHL_TEAMS } from "@/lib/teams";
@@ -9,7 +9,7 @@ import { formatDayHeading, formatEasternTime, todayIsoInEastern } from "@/lib/da
 type SortKey = "name" | "games-desc" | "games-asc" | "off-days-desc" | "off-days-asc";
 type GameFilter = "all" | "0" | "1" | "2" | "3" | "4" | "5+";
 type CellMode = "logos" | "names";
-type TabMode = "schedule" | "lineup" | "player-search" | "starting-goalies";
+type TabMode = "schedule" | "lineup" | "player-search" | "starting-goalies" | "streamers";
 
 type LineupPlayer = {
   name: string;
@@ -44,6 +44,15 @@ type PlayerSearchResult = {
   teamName: string;
   teamLogo: string;
   tags: string[];
+};
+
+type StreamerResult = {
+  player: LineupPlayer;
+  teamName: string;
+  teamAbbrev: string;
+  teamLogo: string;
+  gameCount: number;
+  gameDates: string[];
 };
 
 function numberedTag(label: string, prefix: string): string {
@@ -376,6 +385,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
 
   const [activeTab, setActiveTab] = useState<TabMode>("schedule");
   const [playerSearch, setPlayerSearch] = useState("");
+  const [streamerDates, setStreamerDates] = useState<string[]>(() => data.days.map((day) => day.date));
   const [selectedTeamAbbrev, setSelectedTeamAbbrev] = useState("VAN");
   const selectedTeam = useMemo(
     () => NHL_TEAMS.find((team) => team.abbrev === selectedTeamAbbrev) ?? NHL_TEAMS[0],
@@ -428,6 +438,42 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
       .filter((result) => !query || `${result.player.name} ${result.teamName} ${result.teamAbbrev}`.toLowerCase().includes(query))
       .sort((a, b) => a.player.name.localeCompare(b.player.name));
   }, [lineups, playerSearch]);
+
+  useEffect(() => {
+    setStreamerDates(data.days.map((day) => day.date));
+  }, [data.days, data.weekStart]);
+
+  const streamerResults = useMemo(() => {
+    const results: StreamerResult[] = [];
+    for (const team of NHL_TEAMS) {
+      const lineup = lineups[team.abbrev];
+      if (!lineup) continue;
+      const players = [...lineup.forwards.flatMap((group) => group.players), ...lineup.defense.flatMap((group) => group.players), ...lineup.goalies.flatMap((group) => group.players)];
+      const uniquePlayers = new Map(players.map((player) => [`${player.name}-${player.number}`, player]));
+      const scheduleTeam = data.teams.find((entry) => entry.abbrev === team.abbrev);
+      if (!scheduleTeam) continue;
+      for (const player of uniquePlayers.values()) {
+        const gameDates = streamerDates.filter((date) => (scheduleTeam.gamesByDate[date]?.length ?? 0) > 0);
+        if (gameDates.length > 0) {
+          results.push({
+            player,
+            teamName: team.name,
+            teamAbbrev: team.abbrev,
+            teamLogo: team.logo,
+            gameCount: gameDates.reduce((total, date) => total + (scheduleTeam.gamesByDate[date]?.length ?? 0), 0),
+            gameDates,
+          });
+        }
+      }
+    }
+
+    const completePlayers = results.filter((result) => result.gameDates.length === streamerDates.length);
+    const players = completePlayers.length > 0 ? completePlayers : results;
+    return {
+      hasCompletePlayers: completePlayers.length > 0,
+      players: [...players].sort((a, b) => b.gameCount - a.gameCount || a.player.name.localeCompare(b.player.name)),
+    };
+  }, [data.teams, lineups, streamerDates]);
 
   const currentWeek = data.weeks.find((week) => week.monday === data.weekStart);
   const currentIndex = data.weeks.findIndex((week) => week.monday === data.weekStart);
@@ -525,6 +571,13 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "starting-goalies" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Starting Goalies
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("streamers")}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "streamers" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
+        >
+          Streamers
         </button>
       </div>
 
@@ -806,7 +859,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
             </div>
           )}
         </div>
-      ) : (
+      ) : activeTab === "starting-goalies" ? (
         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-[0_12px_20px_rgba(15,23,42,0.04)]">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -857,6 +910,82 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
                 </article>
               ))}
             </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-[0_12px_20px_rgba(15,23,42,0.04)]">
+          <div className="mb-5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-600">Fantasy tools</p>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-900">Streamers</h2>
+            <p className="mt-1 text-sm text-slate-500">Choose the days you need coverage and find players with games on those dates.</p>
+          </div>
+
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-800">Games needed</h3>
+              <button
+                type="button"
+                onClick={() => setStreamerDates([])}
+                className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {data.days.map((day) => {
+                const selected = streamerDates.includes(day.date);
+                const heading = formatDayHeading(day.date);
+                return (
+                  <button
+                    key={day.date}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setStreamerDates((current) => selected ? current.filter((date) => date !== day.date) : [...current, day.date].sort())}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${selected ? "border-rose-500 bg-rose-500 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-rose-300"}`}
+                  >
+                    <span className="block text-xs font-bold">{heading.weekday}</span>
+                    <span className={`block text-[10px] ${selected ? "text-rose-50" : "text-slate-400"}`}>{heading.monthDay}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {streamerDates.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
+              Select at least one day to find streamer options.
+            </div>
+          ) : streamerResults.players.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
+              No lineup players are available for the selected dates.
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-slate-600">
+                  {streamerResults.hasCompletePlayers ? "Players with games on every selected day" : "No player covers every selected day, so these are the best multi-game options"}
+                </p>
+                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400">{streamerResults.players.length} players</span>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {streamerResults.players.map((result) => (
+                  <div key={`${result.teamAbbrev}-${result.player.name}-${result.player.number}`} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <img src={result.teamLogo} alt="" className="h-10 w-10 shrink-0 object-contain" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-800">{result.player.name}</div>
+                      <div className="text-xs text-slate-500">{result.teamName} · {result.gameCount} {result.gameCount === 1 ? "game" : "games"}</div>
+                    </div>
+                    <div className="flex max-w-[45%] flex-wrap justify-end gap-1">
+                      {result.gameDates.map((date) => (
+                        <span key={date} className="rounded-full bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-700">
+                          {formatDayHeading(date).weekday}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
