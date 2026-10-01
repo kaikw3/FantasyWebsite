@@ -227,8 +227,11 @@ function lineupForTeam(teamAbbrev: string): TeamLineup {
 function PlayerBadge({ player }: { player: LineupPlayer }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
-        {player.number}
+      <div className="relative h-10 w-10 shrink-0">
+        <img src={player.headshotUrl ?? "/generic-player.svg"} alt={player.name} className="h-10 w-10 rounded-full object-cover" />
+        <span className="absolute -bottom-1 -right-1 rounded-full bg-slate-900 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
+          {player.number}
+        </span>
       </div>
       <div className="min-w-0 flex-1">
         <div className="break-words text-xs font-semibold leading-tight text-slate-800">{player.name}</div>
