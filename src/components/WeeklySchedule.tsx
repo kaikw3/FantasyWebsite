@@ -821,6 +821,28 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
         </>
       ) : activeTab === "lineup" ? (
         <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-[0_12px_20px_rgba(15,23,42,0.04)]">
+          <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-800">Choose a team</h2>
+              <span className="text-xs text-slate-500">{selectedTeam.abbrev}</span>
+            </div>
+            <div className="grid grid-cols-8 gap-2 sm:grid-cols-[repeat(16,minmax(0,1fr))]">
+              {NHL_TEAMS.map((team) => (
+                <button
+                  key={team.abbrev}
+                  type="button"
+                  title={team.name}
+                  aria-label={`View ${team.name} lineup`}
+                  aria-pressed={selectedTeamAbbrev === team.abbrev}
+                  onClick={() => setSelectedTeamAbbrev(team.abbrev)}
+                  className={`flex aspect-square items-center justify-center rounded-xl border bg-white p-1.5 transition hover:border-rose-300 hover:shadow-sm ${selectedTeamAbbrev === team.abbrev ? "border-2 border-rose-500 shadow-sm" : "border-slate-200"}`}
+                >
+                  <img src={team.logo} alt={team.name} className="h-full w-full object-contain" />
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <img src={selectedTeam.logo} alt={selectedTeam.name} className="h-10 w-10 object-contain" />
@@ -830,20 +852,6 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
                 <p className="mt-1 text-xs text-slate-500">{lineups[selectedTeamAbbrev]?.sourceLabel ?? "Lineup source unavailable"}</p>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <span>Team</span>
-              <select
-                value={selectedTeamAbbrev}
-                onChange={(event) => setSelectedTeamAbbrev(event.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-cyan-400/40 focus:ring-2"
-              >
-                {NHL_TEAMS.map((team) => (
-                  <option key={team.abbrev} value={team.abbrev}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
