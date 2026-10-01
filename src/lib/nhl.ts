@@ -416,13 +416,46 @@ async function getDailyFaceoffLineup(teamName: string): Promise<TeamLineupData> 
   };
 }
 
+function enrichLineupFaces(lineup: TeamLineupData, roster: NhlRosterResponse): TeamLineupData {
+  const rosterFaces = new Map(
+    [...(roster.forwards ?? []), ...(roster.defensemen ?? []), ...(roster.goalies ?? [])].map((player) => [
+      `${player.firstName?.default ?? ""} ${player.lastName?.default ?? ""}`.toLowerCase().replace(/[^a-z0-9]/g, ""),
+      player.headshot,
+    ]),
+  );
+  const addFaces = (groups: LineupGroupData[]) => groups.map((group) => ({
+    ...group,
+    players: group.players.map((player) => ({
+      ...player,
+      headshotUrl: player.headshotUrl ?? rosterFaces.get(player.name.toLowerCase().replace(/[^a-z0-9]/g, "")),
+    })),
+  }));
+  return {
+    ...lineup,
+    forwards: addFaces(lineup.forwards),
+    defense: addFaces(lineup.defense),
+    goalies: addFaces(lineup.goalies),
+    powerPlay: addFaces(lineup.powerPlay),
+    injuries: lineup.injuries.map((player) => ({
+      ...player,
+      headshotUrl: player.headshotUrl ?? rosterFaces.get(player.name.toLowerCase().replace(/[^a-z0-9]/g, "")),
+    })),
+  };
+}
+
 export async function getTeamLineups(): Promise<Record<string, TeamLineupData>> {
   const entries: Array<readonly [string, TeamLineupData]> = [];
   for (let index = 0; index < NHL_TEAMS.length; index += 6) {
     const batch = NHL_TEAMS.slice(index, index + 6);
     const batchEntries = await Promise.all(batch.map(async (team) => {
       try {
-        return [team.abbrev, await getDailyFaceoffLineup(team.name)] as const;
+        const lineup = await getDailyFaceoffLineup(team.name);
+        try {
+          const roster = await nhlFetch<NhlRosterResponse>(`/roster/${team.abbrev}/current`);
+          return [team.abbrev, enrichLineupFaces(lineup, roster)] as const;
+        } catch {
+          return [team.abbrev, lineup] as const;
+        }
       } catch {
         try {
           const roster = await nhlFetch<NhlRosterResponse>(`/roster/${team.abbrev}/current`);

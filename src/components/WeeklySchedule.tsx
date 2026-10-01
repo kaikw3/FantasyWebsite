@@ -523,7 +523,8 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
 
   function goToWeek(monday: string) {
     startTransition(() => {
-      router.push(monday === data.weeks.find((w) => w.isCurrent)?.monday ? "/" : `/?week=${monday}`);
+      const tabQuery = activeTab === "schedule" ? "" : `&tab=${activeTab}`;
+      router.push(monday === data.weeks.find((w) => w.isCurrent)?.monday ? (activeTab === "schedule" ? "/" : `/?tab=${activeTab}`) : `/?week=${monday}${tabQuery}`);
     });
   }
 
@@ -981,6 +982,31 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-600">Fantasy tools</p>
             <h2 className="mt-1 text-2xl font-semibold text-slate-900">Streamers</h2>
             <p className="mt-1 text-sm text-slate-500">Choose the days you need coverage and find players with games on those dates.</p>
+          </div>
+
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Fantasy week</p>
+              <p className="text-sm font-semibold text-slate-800">{currentWeek?.label ?? data.weekStart}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={currentIndex <= 0 || pending}
+                onClick={() => goToWeek(data.weeks[currentIndex - 1].monday)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ← Previous
+              </button>
+              <button
+                type="button"
+                disabled={currentIndex < 0 || currentIndex >= data.weeks.length - 1 || pending}
+                onClick={() => goToWeek(data.weeks[currentIndex + 1].monday)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next →
+              </button>
+            </div>
           </div>
 
           <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
