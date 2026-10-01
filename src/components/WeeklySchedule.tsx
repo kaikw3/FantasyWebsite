@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { DayGame, StartingGoaliesData, TeamLineupData, TeamWeekRow, WeeklyScheduleData } from "@/lib/nhl";
+import type { DayGame, FantasyPointsMap, StartingGoaliesData, TeamLineupData, TeamWeekRow, WeeklyScheduleData } from "@/lib/nhl";
 import { NHL_TEAMS } from "@/lib/teams";
 import { formatDayHeading, formatEasternTime, todayIsoInEastern } from "@/lib/dates";
 
@@ -10,10 +10,13 @@ type SortKey = "name" | "games-desc" | "games-asc" | "off-days-desc" | "off-days
 type GameFilter = "all" | "0" | "1" | "2" | "3" | "4" | "5+";
 type CellMode = "logos" | "names";
 type TabMode = "schedule" | "lineup" | "player-search" | "starting-goalies" | "streamers";
+type StreamerSortKey = "name" | "games" | "goals" | "assists" | "powerPlayPoints" | "averageToi" | "shots" | "hits" | "blocks" | "fantasyPoints";
+type StreamerSort = { key: StreamerSortKey; direction: "asc" | "desc" };
 
 type LineupPlayer = {
   name: string;
   number: number;
+  headshotUrl?: string;
   position?: string;
   status?: "healthy" | "day-to-day" | "out";
   note?: string;
@@ -36,6 +39,8 @@ type WeeklyScheduleProps = {
   data: WeeklyScheduleData;
   lineups: Record<string, TeamLineupData>;
   startingGoalies: StartingGoaliesData;
+  fantasyPoints: FantasyPointsMap;
+  initialTab?: string;
 };
 
 type PlayerSearchResult = {
@@ -53,7 +58,19 @@ type StreamerResult = {
   teamLogo: string;
   gameCount: number;
   gameDates: string[];
+  goals?: number;
+  assists?: number;
+  powerPlayPoints?: number;
+  averageToi?: number | null;
+  shots?: number;
+  hits?: number | null;
+  blocks?: number;
+  fantasyPoints?: number;
 };
+
+function fantasyPlayerKey(name: string, teamAbbrev: string): string {
+  return `${teamAbbrev}:${name.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+}
 
 function numberedTag(label: string, prefix: string): string {
   const number = label.match(/\d+/)?.[0] ?? "";
@@ -313,7 +330,7 @@ function GameCell({
   );
 }
 
-export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklyScheduleProps) {
+export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, initialTab }: WeeklyScheduleProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [sort, setSort] = useState<SortKey>("name");
@@ -383,9 +400,14 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
     return sorted;
   }, [data.teams, gameFilter, getDisplayGameCount, getOffDayCount, query, sort]);
 
-  const [activeTab, setActiveTab] = useState<TabMode>("schedule");
+  const [activeTab, setActiveTab] = useState<TabMode>(() => {
+    return initialTab === "lineup" || initialTab === "player-search" || initialTab === "starting-goalies" || initialTab === "streamers"
+      ? initialTab
+      : "schedule";
+  });
   const [playerSearch, setPlayerSearch] = useState("");
   const [streamerDates, setStreamerDates] = useState<string[]>(() => data.days.map((day) => day.date));
+  const [streamerSort, setStreamerSort] = useState<StreamerSort>({ key: "fantasyPoints", direction: "desc" });
   const [selectedTeamAbbrev, setSelectedTeamAbbrev] = useState("VAN");
   const selectedTeam = useMemo(
     () => NHL_TEAMS.find((team) => team.abbrev === selectedTeamAbbrev) ?? NHL_TEAMS[0],
@@ -462,6 +484,14 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
             teamLogo: team.logo,
             gameCount: gameDates.reduce((total, date) => total + (scheduleTeam.gamesByDate[date]?.length ?? 0), 0),
             gameDates,
+            goals: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.goals,
+            assists: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.assists,
+            powerPlayPoints: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.powerPlayPoints,
+            averageToi: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.averageToi,
+            shots: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.shots,
+            hits: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.hits,
+            blocks: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.blocks,
+            fantasyPoints: fantasyPoints[fantasyPlayerKey(player.name, team.abbrev)]?.fantasyPoints,
           });
         }
       }
@@ -471,9 +501,19 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
     const players = completePlayers.length > 0 ? completePlayers : results;
     return {
       hasCompletePlayers: completePlayers.length > 0,
-      players: [...players].sort((a, b) => b.gameCount - a.gameCount || a.player.name.localeCompare(b.player.name)),
+      players: [...players].sort((a, b) => {
+        if (streamerSort.key === "name") return a.player.name.localeCompare(b.player.name) * (streamerSort.direction === "asc" ? 1 : -1);
+        const aValue = streamerSort.key === "games" ? a.gameCount : a[streamerSort.key];
+        const bValue = streamerSort.key === "games" ? b.gameCount : b[streamerSort.key];
+        if (typeof aValue === "number" || typeof bValue === "number") {
+          const aNumber = typeof aValue === "number" ? aValue : -1;
+          const bNumber = typeof bValue === "number" ? bValue : -1;
+          return (bNumber - aNumber) * (streamerSort.direction === "desc" ? 1 : -1) || a.player.name.localeCompare(b.player.name);
+        }
+        return a.player.name.localeCompare(b.player.name);
+      }),
     };
-  }, [data.teams, lineups, streamerDates]);
+  }, [data.teams, fantasyPoints, lineups, streamerDates, streamerSort]);
 
   const currentWeek = data.weeks.find((week) => week.monday === data.weekStart);
   const currentIndex = data.weeks.findIndex((week) => week.monday === data.weekStart);
@@ -486,8 +526,17 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
 
   function goToGoalieDate(date: string) {
     startTransition(() => {
-      router.push(date === todayIsoInEastern() ? "/" : `/?goalieDate=${date}`);
+      router.push(date === todayIsoInEastern() ? "/?tab=starting-goalies" : `/?tab=starting-goalies&goalieDate=${date}`);
     });
+  }
+
+  function switchTab(tab: TabMode) {
+    setActiveTab(tab);
+    const params = new URLSearchParams(window.location.search);
+    if (tab === "schedule") params.delete("tab");
+    else params.set("tab", tab);
+    const queryString = params.toString();
+    router.replace(`${window.location.pathname}${queryString ? `?${queryString}` : ""}`);
   }
 
   function cycleGamesSort() {
@@ -518,6 +567,17 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
     return "Off-Days";
   }
 
+  function sortStreamersBy(key: StreamerSortKey) {
+    setStreamerSort((current) => current.key === key
+      ? { key, direction: current.direction === "desc" ? "asc" : "desc" }
+      : { key, direction: key === "name" ? "asc" : "desc" });
+  }
+
+  function streamerSortLabel(key: StreamerSortKey, label: string) {
+    if (streamerSort.key !== key) return label;
+    return `${label} ${streamerSort.direction === "desc" ? "↓" : "↑"}`;
+  }
+
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-8">
       <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -526,7 +586,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
             Fantasy Hockey · {data.seasonLabel} season
           </p>
           <h1 className="mt-1 text-4xl font-semibold text-stone-950 sm:text-5xl">
-            NHL Weekly Schedule
+            NHL Fantasy Cheat Sheet
           </h1>
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -546,35 +606,35 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
       <div className="mb-7 flex flex-wrap items-center gap-1 border-b border-stone-300/80">
         <button
           type="button"
-          onClick={() => setActiveTab("schedule")}
+          onClick={() => switchTab("schedule")}
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "schedule" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Schedule
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("lineup")}
+          onClick={() => switchTab("lineup")}
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "lineup" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Team Lineup
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("player-search")}
+          onClick={() => switchTab("player-search")}
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "player-search" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Player Search
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("starting-goalies")}
+          onClick={() => switchTab("starting-goalies")}
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "starting-goalies" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Starting Goalies
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("streamers")}
+          onClick={() => switchTab("streamers")}
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "streamers" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Streamers
@@ -843,7 +903,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
               {playerSearchResults.map((result) => (
                 <div key={`${result.teamAbbrev}-${result.player.name}-${result.player.number}`} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
-                    <img src={result.teamLogo} alt="" className="h-9 w-9 shrink-0 object-contain" />
+                    <img src={result.player.headshotUrl ?? "/generic-player.svg"} alt={result.player.name} className="h-9 w-9 shrink-0 rounded-full object-cover" />
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-800">{result.player.name}</div>
                       <div className="text-xs text-slate-500">#{result.player.number} · {result.teamName}</div>
@@ -961,29 +1021,69 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
             </div>
           ) : (
             <>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-sm text-slate-600">
-                  {streamerResults.hasCompletePlayers ? "Players with games on every selected day" : "No player covers every selected day, so these are the best multi-game options"}
-                </p>
+              <div className={`mb-4 flex items-start justify-between gap-3 rounded-xl border p-3 ${streamerResults.hasCompletePlayers ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                <div>
+                  <p className={`text-sm font-semibold ${streamerResults.hasCompletePlayers ? "text-emerald-800" : "text-amber-800"}`}>
+                    {streamerResults.hasCompletePlayers ? "Full coverage found" : "Recommendation mode"}
+                  </p>
+                  <p className={`mt-1 text-xs ${streamerResults.hasCompletePlayers ? "text-emerald-700" : "text-amber-700"}`}>
+                    {streamerResults.hasCompletePlayers
+                      ? "These players have a game on every selected day."
+                      : "No player has a game on every selected day. These results are ranked by the most games across your selected dates."}
+                  </p>
+                </div>
                 <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400">{streamerResults.players.length} players</span>
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                {streamerResults.players.map((result) => (
-                  <div key={`${result.teamAbbrev}-${result.player.name}-${result.player.number}`} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <img src={result.teamLogo} alt="" className="h-10 w-10 shrink-0 object-contain" />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-slate-800">{result.player.name}</div>
-                      <div className="text-xs text-slate-500">{result.teamName} · {result.gameCount} {result.gameCount === 1 ? "game" : "games"}</div>
-                    </div>
-                    <div className="flex max-w-[45%] flex-wrap justify-end gap-1">
-                      {result.gameDates.map((date) => (
-                        <span key={date} className="rounded-full bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-700">
-                          {formatDayHeading(date).weekday}
-                        </span>
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full min-w-[1050px] text-left text-sm">
+                  <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                    <tr>
+                      {([["name", "Player"], ["games", "Games"], ["fantasyPoints", "Fantasy Pts"], ["goals", "G"], ["assists", "A"], ["powerPlayPoints", "PPP"], ["averageToi", "Avg TOI"], ["shots", "SOG"], ["hits", "Hits"], ["blocks", "Blks"]] as const).map(([key, label]) => (
+                        <th key={key} className="border-b border-slate-200 px-3 py-3 font-semibold">
+                          <button type="button" onClick={() => sortStreamersBy(key)} className="whitespace-nowrap hover:text-rose-600">
+                            {streamerSortLabel(key, label)}
+                          </button>
+                        </th>
                       ))}
-                    </div>
-                  </div>
-                ))}
+                      <th className="border-b border-slate-200 px-3 py-3 font-semibold">Days</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {streamerResults.players.map((result) => (
+                      <tr key={`${result.teamAbbrev}-${result.player.name}-${result.player.number}`} className="border-b border-slate-100 last:border-0 hover:bg-rose-50/40">
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-3">
+                            <img src={result.player.headshotUrl ?? "/generic-player.svg"} alt={result.player.name} className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-800">{result.player.name}</div>
+                              <div className="text-xs text-slate-500">{result.teamName}</div>
+                            </div>
+                          </div>
+                        </td>
+                        {[
+                          result.gameCount,
+                          result.fantasyPoints,
+                          result.goals,
+                          result.assists,
+                          result.powerPlayPoints,
+                          result.averageToi,
+                          result.shots,
+                          result.hits,
+                          result.blocks,
+                        ].map((value, index) => (
+                          <td key={index} className="px-3 py-3 font-medium text-slate-700">{value ?? "—"}</td>
+                        ))}
+                        <td className="px-3 py-3">
+                          <div className="flex max-w-40 flex-wrap gap-1">
+                            {result.gameDates.map((date) => (
+                              <span key={date} className="rounded-full bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-700">{formatDayHeading(date).weekday}</span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </>
           )}

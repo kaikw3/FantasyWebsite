@@ -68,6 +68,7 @@ export type WeeklyScheduleData = {
 export type LineupPlayerData = {
   name: string;
   number: number;
+  headshotUrl?: string;
   position?: string;
   status?: "healthy" | "day-to-day" | "out";
   note?: string;
@@ -110,6 +111,19 @@ export type StartingGoaliesData = {
   confirmedCount: number;
   sourceLabel: string;
 };
+
+export type FantasyPlayerStats = {
+  goals: number;
+  assists: number;
+  powerPlayPoints: number;
+  averageToi: number | null;
+  shots: number;
+  hits: number | null;
+  blocks: number;
+  fantasyPoints: number;
+};
+
+export type FantasyPointsMap = Record<string, FantasyPlayerStats>;
 
 type NhlTeamBlock = {
   abbrev: string;
@@ -154,6 +168,7 @@ type NhlRosterPlayer = {
   lastName?: { default?: string };
   sweaterNumber?: number;
   positionCode?: string;
+  headshot?: string;
 };
 
 type NhlRosterResponse = {
@@ -164,6 +179,7 @@ type NhlRosterResponse = {
 
 type DailyFaceoffPlayer = {
   name?: string;
+  fantasydataFaceUrl?: string;
   jerseyNumber?: number | null;
   positionName?: string;
   groupIdentifier?: string;
@@ -256,6 +272,7 @@ function rosterPlayer(player: NhlRosterPlayer): LineupPlayerData {
   return {
     name: `${player.firstName?.default ?? "Unknown"} ${player.lastName?.default ?? "Player"}`.trim(),
     number: player.sweaterNumber ?? 0,
+    headshotUrl: player.headshot,
     position: player.positionCode,
   };
 }
@@ -265,6 +282,7 @@ function dailyFaceoffPlayer(player: DailyFaceoffPlayer): LineupPlayerData {
   return {
     name: player.name ?? "Unknown Player",
     number: player.jerseyNumber ?? 0,
+    headshotUrl: player.fantasydataFaceUrl,
     position: player.positionName,
     status: status?.includes("out") || status?.includes("ir") ? "out" : player.gameTimeDecision ? "day-to-day" : undefined,
     note: player.latestNews?.details,
@@ -518,6 +536,45 @@ export async function getStartingGoalies(dateParam?: string): Promise<StartingGo
     };
   } catch {
     return { date: "", games: [], confirmedCount: 0, sourceLabel: "Daily Faceoff · Starting Goalies unavailable" };
+  }
+}
+
+function fantasyPlayerKey(name: string, teamAbbrev: string): string {
+  return `${teamAbbrev}:${name.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+}
+
+export async function getFantasyPoints(): Promise<FantasyPointsMap> {
+  try {
+    const response = await fetch("https://fantasydata.com/nhl/fantasy-hockey-leaders", {
+      headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(7000),
+      next: { revalidate: 900 },
+    });
+    if (!response.ok) throw new Error(`FantasyData failed (${response.status})`);
+    const html = await response.text();
+    const points: FantasyPointsMap = {};
+    for (const row of html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) ?? []) {
+      const values = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) =>
+        match[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim(),
+      );
+      if (values.length < 17) continue;
+      const fantasyPoints = Number(values.at(-1));
+      if (values[1] && values[2] && Number.isFinite(fantasyPoints)) {
+        points[fantasyPlayerKey(values[1], values[2])] = {
+          goals: Number(values[5]) || 0,
+          assists: Number(values[6]) || 0,
+          powerPlayPoints: Number(values[10]) || 0,
+          averageToi: null,
+          shots: Number(values[8]) || 0,
+          hits: null,
+          blocks: Number(values[13]) || 0,
+          fantasyPoints,
+        };
+      }
+    }
+    return points;
+  } catch {
+    return {};
   }
 }
 
