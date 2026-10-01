@@ -278,7 +278,12 @@ function dailyFaceoffSlug(teamName: string): string {
 async function getDailyFaceoffLineup(teamName: string): Promise<TeamLineupData> {
   const slug = dailyFaceoffSlug(teamName);
   const response = await fetch(`https://www.dailyfaceoff.com/teams/${slug}/line-combinations`, {
-    headers: { Accept: "text/html", "User-Agent": FETCH_HEADERS["User-Agent"] },
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "Accept-Language": "en-US,en;q=0.9",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+    },
+    signal: AbortSignal.timeout(5000),
     next: { revalidate: 300 },
   });
   if (!response.ok) {
@@ -318,8 +323,10 @@ async function getDailyFaceoffLineup(teamName: string): Promise<TeamLineupData> 
 }
 
 export async function getTeamLineups(): Promise<Record<string, TeamLineupData>> {
-  const entries = await Promise.all(
-    NHL_TEAMS.map(async (team) => {
+  const entries: Array<readonly [string, TeamLineupData]> = [];
+  for (let index = 0; index < NHL_TEAMS.length; index += 6) {
+    const batch = NHL_TEAMS.slice(index, index + 6);
+    const batchEntries = await Promise.all(batch.map(async (team) => {
       try {
         return [team.abbrev, await getDailyFaceoffLineup(team.name)] as const;
       } catch {
@@ -332,13 +339,14 @@ export async function getTeamLineups(): Promise<Record<string, TeamLineupData>> 
             powerPlay: [],
             injuries: [],
             sourceLabel: "NHL public roster feed",
-          }] as const;
+          }] as [string, TeamLineupData];
         } catch {
-          return [team.abbrev, { forwards: [], defense: [], goalies: [], powerPlay: [], injuries: [], sourceLabel: "Lineup data unavailable" }] as const;
+          return [team.abbrev, { forwards: [], defense: [], goalies: [], powerPlay: [], injuries: [], sourceLabel: "Lineup data unavailable" }] as [string, TeamLineupData];
         }
       }
-    }),
-  );
+    }));
+    entries.push(...batchEntries);
+  }
   return Object.fromEntries(entries);
 }
 
@@ -361,7 +369,12 @@ export async function getStartingGoalies(dateParam?: string): Promise<StartingGo
   try {
     const datePath = dateParam ? `/${dateParam}` : "";
     const response = await fetch(`https://www.dailyfaceoff.com/starting-goalies${datePath}`, {
-      headers: { Accept: "text/html", "User-Agent": FETCH_HEADERS["User-Agent"] },
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(7000),
       next: { revalidate: 300 },
     });
     if (!response.ok) throw new Error(`Daily Faceoff starting goalies failed (${response.status})`);

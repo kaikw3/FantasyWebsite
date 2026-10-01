@@ -473,18 +473,18 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-4 py-6 sm:px-6">
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-8">
       <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-600">
             Fantasy Hockey · {data.seasonLabel} season
           </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+          <h1 className="mt-1 text-4xl font-semibold text-stone-950 sm:text-5xl">
             NHL Weekly Schedule
           </h1>
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-600">
-          <span className="h-2 w-2 rounded-full bg-cyan-500" />
+          <span className="h-2 w-2 rounded-full bg-rose-500" />
           Today highlighted
           <span className="ml-3 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
             PS
@@ -497,32 +497,32 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
         </div>
       </header>
 
-      <div className="mb-5 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-sm backdrop-blur-md">
+      <div className="mb-7 flex flex-wrap items-center gap-1 border-b border-stone-300/80">
         <button
           type="button"
           onClick={() => setActiveTab("schedule")}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === "schedule" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "schedule" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Schedule
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("lineup")}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === "lineup" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "lineup" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Team Lineup
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("player-search")}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === "player-search" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "player-search" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Player Search
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("starting-goalies")}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === "starting-goalies" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeTab === "starting-goalies" ? "border-rose-500 text-stone-950" : "border-transparent text-stone-500 hover:text-stone-950"}`}
         >
           Starting Goalies
         </button>
@@ -530,7 +530,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
 
       {activeTab === "schedule" ? (
         <>
-          <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-md">
+          <div className="mb-4 flex flex-col gap-3 rounded-[20px] border border-stone-200 bg-white p-5 shadow-[0_10px_30px_rgba(29,29,27,0.05)]">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -549,7 +549,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
                   value={data.weekStart}
                   disabled={pending}
                   onChange={(event) => goToWeek(event.target.value)}
-                  className="min-w-[240px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-cyan-400/40 focus:ring-2"
+                  className="min-w-[240px] rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none ring-rose-400/40 focus:ring-2"
                 >
                   {data.weeks.map((week) => (
                     <option key={week.monday} value={week.monday}>
@@ -583,12 +583,12 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
                   placeholder="Search teams"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  className="w-40 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-cyan-400/40 placeholder:text-slate-500 focus:ring-2"
+                  className="w-40 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none ring-rose-400/40 placeholder:text-stone-500 focus:ring-2"
                 />
                 <select
                   value={gameFilter}
                   onChange={(event) => setGameFilter(event.target.value as GameFilter)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-cyan-400/40 focus:ring-2"
+                  className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none ring-rose-400/40 focus:ring-2"
                 >
                   <option value="all">All game counts</option>
                   <option value="0">0 games</option>
@@ -603,7 +603,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies }: WeeklySchedul
                     type="checkbox"
                     checked={showRemainingOnly}
                     onChange={(event) => setShowRemainingOnly(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 bg-slate-50 text-cyan-600 focus:ring-cyan-500"
+                    className="h-4 w-4 rounded border-stone-300 bg-stone-50 text-rose-600 focus:ring-rose-500"
                   />
                   Remaining games
                 </label>

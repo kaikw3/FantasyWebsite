@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f3f7fb;
-  --foreground: #112033;
+  --background: #f7f7f4;
+  --foreground: #1d1d1b;
 }
 
 @theme inline {
@@ -14,7 +14,8 @@
 
 body {
   background:
-    linear-gradient(180deg, #f9fbff 0%, #edf5ff 35%, #f3f7fb 100%);
+    radial-gradient(circle at 100% 0%, rgba(255, 91, 91, 0.08), transparent 30rem),
+    linear-gradient(180deg, #fbfbf8 0%, #f7f7f4 48%, #f1f2ed 100%);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
@@ -28,6 +29,25 @@ body * {
   box-sizing: border-box;
 }
 
+/* Keep the interface soft and consistent across the schedule, lineup, and search surfaces. */
+.rounded-lg {
+  border-radius: 0.875rem;
+}
+
+.rounded-xl {
+  border-radius: 1.125rem;
+}
+
+.rounded-2xl {
+  border-radius: 1.5rem;
+}
+
+button,
+input,
+select {
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
 ::selection {
-  background: rgba(14, 165, 233, 0.18);
+  background: rgba(255, 91, 91, 0.22);
 }
