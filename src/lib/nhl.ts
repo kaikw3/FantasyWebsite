@@ -275,23 +275,90 @@ function dailyFaceoffSlug(teamName: string): string {
   return teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+async function fetchDailyFaceoffDocument(path: string): Promise<string> {
+  const urls = [
+    `https://www.dailyfaceoff.com${path}`,
+    `https://r.jina.ai/http://www.dailyfaceoff.com${path}`,
+  ];
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml,text/plain",
+          "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(url.includes("r.jina.ai") ? 10000 : 5000),
+        next: { revalidate: 300 },
+      });
+      if (response.ok) return response.text();
+    } catch {
+      // Try the next source.
+    }
+  }
+  throw new Error(`Daily Faceoff could not load ${path}`);
+}
+
+function markdownPlayers(section: string): LineupPlayerData[] {
+  const players: LineupPlayerData[] = [];
+  const imagePattern = /!\[Image \d+: ([^\]]+)\]\(([^)]+)\)/g;
+  for (const match of section.matchAll(imagePattern)) {
+    const imageUrl = decodeURIComponent(match[2]);
+    const numberMatch = imageUrl.match(/_[A-Za-z]*?(\d+)(?:_|\.)/);
+    players.push({
+      name: match[1],
+      number: numberMatch ? Number(numberMatch[1]) : 0,
+    });
+  }
+  return players;
+}
+
+function markdownSection(markdown: string, title: string, nextTitles: string[]): string {
+  const start = markdown.indexOf(`\n${title}\n`);
+  if (start < 0) return "";
+  const content = markdown.slice(start + title.length + 2);
+  const endPositions = nextTitles.map((nextTitle) => content.indexOf(`\n${nextTitle}\n`)).filter((position) => position >= 0);
+  const end = endPositions.length > 0 ? Math.min(...endPositions) : content.length;
+  return content.slice(0, end);
+}
+
+function parseMarkdownLineup(markdown: string): TeamLineupData {
+  const sectionTitles = ["Forwards", "Defensive Pairings", "1st Powerplay Unit", "2nd Powerplay Unit", "Goalies", "Injuries"];
+  const section = (title: string) => markdownSection(markdown, title, sectionTitles.filter((nextTitle) => nextTitle !== title));
+  const chunkGroups = (players: LineupPlayerData[], size: number, label: string): LineupGroupData[] => {
+    const groups: LineupGroupData[] = [];
+    for (let index = 0; index < players.length; index += size) {
+      groups.push({ label: `${label} ${groups.length + 1}`, players: players.slice(index, index + size) });
+    }
+    return groups;
+  };
+  const forwards = markdownPlayers(section("Forwards"));
+  const defense = markdownPlayers(section("Defensive Pairings"));
+  const powerPlay = ["1st Powerplay Unit", "2nd Powerplay Unit"].flatMap((title) => ({
+    label: title.replace(" Powerplay Unit", " PP"),
+    players: markdownPlayers(section(title)),
+  })).filter((group) => group.players.length > 0);
+  const injuryText = section("Injuries");
+  const injuryStatuses = [...injuryText.matchAll(/\n(out|ir|day-to-day)\n/gi)].map((match) => match[1].toLowerCase());
+  const injuries = markdownPlayers(injuryText).map((player, index) => {
+    const status: LineupPlayerData["status"] = injuryStatuses[index] === "ir" || injuryStatuses[index] === "out" ? "out" : "day-to-day";
+    return { ...player, status };
+  });
+  return {
+    forwards: chunkGroups(forwards, 3, "Line"),
+    defense: chunkGroups(defense, 2, "Pair"),
+    goalies: [{ label: "Goalies", players: markdownPlayers(section("Goalies")) }].filter((group) => group.players.length > 0),
+    powerPlay,
+    injuries,
+    sourceLabel: "Daily Faceoff · Proxy data",
+  };
+}
+
 async function getDailyFaceoffLineup(teamName: string): Promise<TeamLineupData> {
   const slug = dailyFaceoffSlug(teamName);
-  const response = await fetch(`https://www.dailyfaceoff.com/teams/${slug}/line-combinations`, {
-    headers: {
-      Accept: "text/html,application/xhtml+xml",
-      "Accept-Language": "en-US,en;q=0.9",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-    },
-    signal: AbortSignal.timeout(5000),
-    next: { revalidate: 300 },
-  });
-  if (!response.ok) {
-    throw new Error(`Daily Faceoff ${slug} failed (${response.status})`);
-  }
-  const html = await response.text();
+  const html = await fetchDailyFaceoffDocument(`/teams/${slug}/line-combinations`);
   const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-  if (!match) throw new Error(`Daily Faceoff ${slug} did not include lineup data`);
+  if (!match) return parseMarkdownLineup(html);
   const page = JSON.parse(match[1]) as DailyFaceoffPageData;
   const combinations = page.props?.pageProps?.combinations;
   if (!combinations?.players?.length) throw new Error(`Daily Faceoff ${slug} returned no players`);
@@ -365,22 +432,60 @@ function startingGoalie(
   };
 }
 
+function teamInfoByName(name: string): { name: string; logo: string } {
+  const team = NHL_TEAMS.find((entry) => entry.name === name);
+  return team
+    ? { name: team.name, logo: team.logo }
+    : { name, logo: "" };
+}
+
+function parseMarkdownStartingGoalies(markdown: string): StartingGoaliesData {
+  const imagePattern = /!\[Image \d+: ([^\]]+)\]\(([^)]+)\)/g;
+  const images = [...markdown.matchAll(imagePattern)].filter((match) => match[2].includes("/uploads/player/headshot/"));
+  const games: StartingGoalieGame[] = [];
+  for (let index = 0; index + 1 < images.length; index += 2) {
+    const first = images[index];
+    const second = images[index + 1];
+    const before = markdown.slice(0, first.index ?? 0);
+    const matchupMatches = [...before.matchAll(/^(.+?) at (.+)$/gm)];
+    const matchup = matchupMatches.at(-1);
+    if (!matchup) continue;
+    const dateMatch = [...before.matchAll(/^([A-Z][a-z]{2} \d{1,2}, \d{4} \| .+)$/gm)].at(-1);
+    const segment = markdown.slice(first.index ?? 0, second.index ?? markdown.length);
+    const firstStatus = segment.match(/\n(Confirmed|Likely|Unconfirmed)\n/)?.[1] ?? "Unconfirmed";
+    const afterSecond = markdown.slice(second.index ?? 0);
+    const secondStatus = afterSecond.match(/\n(Confirmed|Likely|Unconfirmed)\n/)?.[1] ?? "Unconfirmed";
+    const parsedDate = dateMatch?.[1] ? new Date(dateMatch[1].replace(" | ", " ")) : null;
+    const dateGmt = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : "";
+    const awayTeam = teamInfoByName(matchup[1].trim());
+    const homeTeam = teamInfoByName(matchup[2].trim());
+    games.push({
+      dateGmt,
+      time: dateMatch?.[1] ?? "",
+      awayTeam: {
+        ...awayTeam,
+        goalie: { name: first[1], headshotUrl: first[2], status: firstStatus, savePercentage: "-", goalsAgainstAverage: "-" },
+      },
+      homeTeam: {
+        ...homeTeam,
+        goalie: { name: second[1], headshotUrl: second[2], status: secondStatus, savePercentage: "-", goalsAgainstAverage: "-" },
+      },
+    });
+  }
+  return {
+    date: "",
+    games,
+    confirmedCount: games.reduce((total, game) => total + Number(game.homeTeam.goalie.status === "Confirmed") + Number(game.awayTeam.goalie.status === "Confirmed"), 0),
+    sourceLabel: "Daily Faceoff · Proxy data",
+  };
+}
+
 export async function getStartingGoalies(dateParam?: string): Promise<StartingGoaliesData> {
   try {
     const datePath = dateParam ? `/${dateParam}` : "";
-    const response = await fetch(`https://www.dailyfaceoff.com/starting-goalies${datePath}`, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-      },
-      signal: AbortSignal.timeout(7000),
-      next: { revalidate: 300 },
-    });
-    if (!response.ok) throw new Error(`Daily Faceoff starting goalies failed (${response.status})`);
-    const html = await response.text();
+    const html = await fetchDailyFaceoffDocument(`/starting-goalies${datePath}`);
     const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-    if (!match) throw new Error("Daily Faceoff starting goalies data was not embedded");
+    if (!match) return parseMarkdownStartingGoalies(html);
     const page = JSON.parse(match[1]) as DailyFaceoffStartingPageData;
     const games = (page.props?.pageProps?.data ?? []).map((game) => ({
       dateGmt: game.dateGmt ?? "",
