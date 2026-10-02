@@ -443,10 +443,11 @@ function enrichLineupFaces(lineup: TeamLineupData, roster: NhlRosterResponse): T
   };
 }
 
-export async function getTeamLineups(): Promise<Record<string, TeamLineupData>> {
+export async function getTeamLineups(teamAbbrev?: string): Promise<Record<string, TeamLineupData>> {
   const entries: Array<readonly [string, TeamLineupData]> = [];
-  for (let index = 0; index < NHL_TEAMS.length; index += 6) {
-    const batch = NHL_TEAMS.slice(index, index + 6);
+  const teams = teamAbbrev ? NHL_TEAMS.filter((team) => team.abbrev === teamAbbrev) : NHL_TEAMS;
+  for (let index = 0; index < teams.length; index += 6) {
+    const batch = teams.slice(index, index + 6);
     const batchEntries = await Promise.all(batch.map(async (team) => {
       try {
         const lineup = await getDailyFaceoffLineup(team.name);

@@ -37,10 +37,8 @@ type TeamLineup = {
 
 type WeeklyScheduleProps = {
   data: WeeklyScheduleData;
-  lineups: Record<string, TeamLineupData>;
-  startingGoalies: StartingGoaliesData;
-  fantasyPoints: FantasyPointsMap;
   initialTab?: string;
+  initialGoalieDate?: string;
 };
 
 type PlayerSearchResult = {
@@ -333,7 +331,7 @@ function GameCell({
   );
 }
 
-export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, initialTab }: WeeklyScheduleProps) {
+export function WeeklySchedule({ data, initialTab, initialGoalieDate }: WeeklyScheduleProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [sort, setSort] = useState<SortKey>("name");
@@ -408,10 +406,69 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
       ? initialTab
       : "schedule";
   });
+  const [lineups, setLineups] = useState<Record<string, TeamLineupData>>({});
+  const [startingGoalies, setStartingGoalies] = useState<StartingGoaliesData>({
+    date: initialGoalieDate ?? "",
+    games: [],
+    confirmedCount: 0,
+    sourceLabel: "",
+  });
+  const [fantasyPoints, setFantasyPoints] = useState<FantasyPointsMap>({});
+  const [loadedDataKeys, setLoadedDataKeys] = useState<string[]>([]);
+  const [dataLoadError, setDataLoadError] = useState<{ key: string; message: string } | null>(null);
+  const [dataReloadToken, setDataReloadToken] = useState(0);
   const [playerSearch, setPlayerSearch] = useState("");
-  const [streamerDates, setStreamerDates] = useState<string[]>(() => data.days.map((day) => day.date));
+  const [streamerSelection, setStreamerSelection] = useState<{ weekStart: string; dates: string[] }>(() => ({
+    weekStart: data.weekStart,
+    dates: data.days.map((day) => day.date),
+  }));
   const [streamerSort, setStreamerSort] = useState<StreamerSort>({ key: "fantasyPoints", direction: "desc" });
   const [selectedTeamAbbrev, setSelectedTeamAbbrev] = useState("VAN");
+  const goalieDate = initialGoalieDate || today;
+  const activeDataKey = activeTab === "lineup"
+    ? `lineup:${selectedTeamAbbrev}`
+    : activeTab === "starting-goalies"
+      ? `starting-goalies:${goalieDate}`
+      : activeTab;
+  const streamerDates = streamerSelection.weekStart === data.weekStart
+    ? streamerSelection.dates
+    : data.days.map((day) => day.date);
+  const activeDataError = dataLoadError?.key === activeDataKey ? dataLoadError.message : null;
+  const activeDataIsLoading = activeTab !== "schedule" && !loadedDataKeys.includes(activeDataKey) && !activeDataError;
+
+  useEffect(() => {
+    if (activeTab === "schedule") return;
+    if (loadedDataKeys.includes(activeDataKey)) return;
+
+    let cancelled = false;
+    const params = new URLSearchParams({ tab: activeTab });
+    if (activeTab === "lineup") params.set("team", selectedTeamAbbrev);
+    if (activeTab === "starting-goalies") params.set("date", goalieDate);
+    fetch(`/api/tab-data?${params.toString()}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Data request failed (${response.status})`);
+        return response.json() as Promise<{
+          lineups?: Record<string, TeamLineupData>;
+          startingGoalies?: StartingGoaliesData;
+          fantasyPoints?: FantasyPointsMap;
+        }>;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        if (payload.lineups) setLineups((current) => ({ ...current, ...payload.lineups }));
+        if (payload.startingGoalies) setStartingGoalies(payload.startingGoalies);
+        if (payload.fantasyPoints) setFantasyPoints(payload.fantasyPoints);
+        setLoadedDataKeys((current) => [...current, activeDataKey]);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setDataLoadError({ key: activeDataKey, message: error instanceof Error ? error.message : "Could not load tab data" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDataKey, activeTab, dataReloadToken, goalieDate, loadedDataKeys, selectedTeamAbbrev]);
+
   const selectedTeam = useMemo(
     () => NHL_TEAMS.find((team) => team.abbrev === selectedTeamAbbrev) ?? NHL_TEAMS[0],
     [selectedTeamAbbrev],
@@ -463,10 +520,6 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
       .filter((result) => !query || `${result.player.name} ${result.teamName} ${result.teamAbbrev}`.toLowerCase().includes(query))
       .sort((a, b) => a.player.name.localeCompare(b.player.name));
   }, [lineups, playerSearch]);
-
-  useEffect(() => {
-    setStreamerDates(data.days.map((day) => day.date));
-  }, [data.days, data.weekStart]);
 
   const streamerResults = useMemo(() => {
     const results: StreamerResult[] = [];
@@ -541,6 +594,12 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
     else params.set("tab", tab);
     const queryString = params.toString();
     router.replace(`${window.location.pathname}${queryString ? `?${queryString}` : ""}`);
+  }
+
+  function retryActiveTabData() {
+    setLoadedDataKeys((current) => current.filter((key) => key !== activeDataKey));
+    setDataLoadError(null);
+    setDataReloadToken((current) => current + 1);
   }
 
   function cycleGamesSort() {
@@ -854,38 +913,49 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <LineCard title="Forwards" groups={selectedLineup.forwards} />
-            <LineCard title="Defense" groups={selectedLineup.defense} />
-            <div className="xl:col-span-2">
-              <LineCard title="Goalies" groups={selectedLineup.goalies} />
+          {activeDataIsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">Loading {selectedTeam.name} lineup…</div>
+          ) : activeDataError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-center">
+              <p className="text-sm text-rose-700">Could not load this lineup. {activeDataError}</p>
+              <button type="button" onClick={retryActiveTabData} className="mt-3 text-sm font-semibold text-rose-700 underline">Try again</button>
             </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-600">Special teams</h3>
-            </div>
-            <div className="space-y-4">
-              <LineCard title="Power play" groups={selectedLineup.powerPlay} />
-              <div key={`injuries-${selectedTeamAbbrev}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-600">Injuries</h3>
-                </div>
-                <div className="space-y-2">
-                  {selectedLineup.injuries.length > 0 ? (
-                    selectedLineup.injuries.map((player) => (
-                      <PlayerBadge key={`${player.name}-${player.number}`} player={player} />
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
-                      No injury report for this team.
-                    </div>
-                  )}
+          ) : (
+            <>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <LineCard title="Forwards" groups={selectedLineup.forwards} />
+                <LineCard title="Defense" groups={selectedLineup.defense} />
+                <div className="xl:col-span-2">
+                  <LineCard title="Goalies" groups={selectedLineup.goalies} />
                 </div>
               </div>
-            </div>
-          </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-600">Special teams</h3>
+                </div>
+                <div className="space-y-4">
+                  <LineCard title="Power play" groups={selectedLineup.powerPlay} />
+                  <div key={`injuries-${selectedTeamAbbrev}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-600">Injuries</h3>
+                    </div>
+                    <div className="space-y-2">
+                      {selectedLineup.injuries.length > 0 ? (
+                        selectedLineup.injuries.map((player) => (
+                          <PlayerBadge key={`${player.name}-${player.number}`} player={player} />
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+                          No injury report for this team.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       ) : activeTab === "player-search" ? (
         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-[0_12px_20px_rgba(15,23,42,0.04)]">
@@ -906,7 +976,14 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
             className="mb-5 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none ring-cyan-400/40 placeholder:text-slate-500 focus:ring-2"
           />
 
-          {playerSearchResults.length === 0 ? (
+          {activeDataIsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">Loading player assignments…</div>
+          ) : activeDataError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-center text-sm text-rose-700">
+              Could not load player assignments. {activeDataError}
+              <button type="button" onClick={retryActiveTabData} className="ml-2 font-semibold underline">Try again</button>
+            </div>
+          ) : playerSearchResults.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
               No players match “{playerSearch}”.
             </div>
@@ -963,7 +1040,14 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
             </div>
           </div>
 
-          {startingGoalies.games.length === 0 ? (
+          {activeDataIsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">Loading starting goalies…</div>
+          ) : activeDataError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-center text-sm text-rose-700">
+              Could not load starting goalies. {activeDataError}
+              <button type="button" onClick={retryActiveTabData} className="ml-2 font-semibold underline">Try again</button>
+            </div>
+          ) : startingGoalies.games.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
               Starting goalie data is currently unavailable.
             </div>
@@ -1022,7 +1106,7 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
               <h3 className="text-sm font-semibold text-slate-800">Games needed</h3>
               <button
                 type="button"
-                onClick={() => setStreamerDates([])}
+                onClick={() => setStreamerSelection({ weekStart: data.weekStart, dates: [] })}
                 className="text-xs font-semibold text-rose-600 hover:text-rose-700"
               >
                 Clear all
@@ -1037,7 +1121,13 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
                     key={day.date}
                     type="button"
                     aria-pressed={selected}
-                    onClick={() => setStreamerDates((current) => selected ? current.filter((date) => date !== day.date) : [...current, day.date].sort())}
+                    onClick={() => setStreamerSelection((current) => {
+                      const dates = current.weekStart === data.weekStart ? current.dates : data.days.map((weekDay) => weekDay.date);
+                      return {
+                        weekStart: data.weekStart,
+                        dates: selected ? dates.filter((date) => date !== day.date) : [...dates, day.date].sort(),
+                      };
+                    })}
                     className={`rounded-xl border px-3 py-2 text-left transition ${selected ? "border-rose-500 bg-rose-500 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-rose-300"}`}
                   >
                     <span className="block text-xs font-bold">{heading.weekday}</span>
@@ -1048,7 +1138,14 @@ export function WeeklySchedule({ data, lineups, startingGoalies, fantasyPoints, 
             </div>
           </div>
 
-          {streamerDates.length === 0 ? (
+          {activeDataIsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">Loading player lines and fantasy stats…</div>
+          ) : activeDataError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-center text-sm text-rose-700">
+              Could not load streamer data. {activeDataError}
+              <button type="button" onClick={retryActiveTabData} className="ml-2 font-semibold underline">Try again</button>
+            </div>
+          ) : streamerDates.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
               Select at least one day to find streamer options.
             </div>
